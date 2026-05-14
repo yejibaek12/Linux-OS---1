@@ -1,0 +1,60 @@
+ssh_config    # 내가 다른 서버에 접속할 때 쓰는 SSH 클라이언트 설정
+sshd_config   # 다른 사람이 내 서버에 접속할 때 쓰는 SSH 서버 설정
+
+#####
+
+# Ubuntu 컨테이너 실행
+$ docker run -it --name linux-os-practice ubuntu:22.04 bash
+
+# 필요한 기본 패키지 설치
+$ apt update
+$ apt install -y sudo nano openssh-server ufw acl iproute2 net-tools procps cron
+
+- sudo = 관리자 권한 명령 도구
+-  nano = 편집기
+-  openssh-server = SSH 서버
+-  ufw = 방화벽 도구
+-  acl = ACL 확인/설정 도구
+-  iproute2 = ss 명령어 포함
+procps = ps, top 등 포함
+cron = 자동 실행 서비스
+
+######
+방화벽 설정
+######
+
+docker run -it --privileged --name linux-os-practice-fw ubuntu:22.04 bash
+
+apt update
+apt install -y ufw iproute2 iptables
+
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 20022/tcp
+ufw allow 15034/tcp
+ufw enable
+ufw status verbose
+
+#####
+계정/그룹 생성
+#####
+
+# 그룹 생성
+groupadd agent-common
+groupadd agent-core
+
+# 사용자 계정 생성
+adduser agent-admin
+adduser agent-dev
+adduser agent-test
+
+# 사용자를 그룹에 추가
+usermod -aG agent-common,agent-core agent-admin
+usermod -aG agent-common,agent-core agent-dev
+usermod -aG agent-common agent-test
+> `-aG` 기존 그룹은 유지하면서 새 그룹을 추가
+
+# 생성 확인 
+id agent-admin
+id agent-dev
+id agent-test

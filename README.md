@@ -36,24 +36,145 @@ monitor.sh      # 시스템 관제 자동화 스크립트
 - 5단계: cron에 주기 실행 등록 및 결과 확인
 
 # 3. 각 단계별 세부 수행 내용
+
 ## (1) 기본 보안 및 네트워크 설정
-- SSH 설정
-    - SSH 접속포트를 20022로 변경
-    - Root 원격 로그인을 차단(PermitRootLogin no 설정)
-    - 확인 방법: 
-- 방화벽 설정
-    - UFW 또는 firewalld 중 하나를 선택해 활성화
-    - 인바운드 허용 포트는 TCP 20022(SSH), TCP 15034(APP)만 허용
-    - 확인 방법:
+
+### 1. 실습 환경 준비
+
+본 과제는 Docker 기반 Ubuntu 22.04 환경에서 수행하였다.  
+UFW 방화벽 설정은 컨테이너 내부에서 `iptables` 권한이 필요하므로 `--privileged` 옵션을 사용하여 컨테이너를 실행하였다.
+
+```bash
+docker run -it --privileged --name linux-os-practice ubuntu:22.04 bash
+apt update
+apt install -y sudo nano openssh-server ufw acl iproute2 net-tools procps cron
+```
+
+---
+
+### 2. SSH 포트 변경 및 Root 원격 접속 차단
+
+SSH 서버 설정 파일을 수정하여 기본 SSH 포트인 `22`번을 `20022`번으로 변경하고, root 계정의 원격 접속을 차단하였다.
+
+#### 사용 명령어
+
+```bash
+nano /etc/ssh/sshd_config
+```
+
+#### 수정 내용
+
+```conf
+Port 20022
+PermitRootLogin no
+```
+
+#### 설정 문법 확인
+
+```bash
+sshd -t && echo "sshd config test: OK"
+```
+
+#### SSH 서비스 재시작
+
+```bash
+service ssh restart
+```
+
+#### 설정 확인
+
+```bash
+grep -E "^(Port|PermitRootLogin)" /etc/ssh/sshd_config
+```
+
+확인 결과:
+
+```text
+Port 20022
+PermitRootLogin no
+```
+
+#### SSH 포트 LISTEN 확인
+
+```bash
+ss -tulnp | grep ssh
+```
+
+확인 내용:
+
+- SSH 서비스가 `20022/tcp` 포트에서 LISTEN 상태인지 확인
+- `PermitRootLogin no` 설정으로 root 원격 접속 차단 확인
+
+증거 자료:
+
+- [SSH 포트 변경 및 Root 접속 차단 확인](./images/ssh-config-check.png)
+
+---
+
+### 3. 방화벽(UFW) 활성화 및 허용 포트 설정
+
+UFW를 활성화하고 기본 인바운드 정책을 차단으로 설정하였다.  
+이후 SSH 접속용 `20022/tcp`와 애플리케이션 접속용 `15034/tcp`만 허용하였다.
+
+#### 사용 명령어
+
+```bash
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 20022/tcp
+ufw allow 15034/tcp
+ufw enable
+```
+
+#### 설정 확인
+
+```bash
+ufw status verbose
+```
+
+확인 내용:
+
+```text
+Status: active
+Default: deny (incoming), allow (outgoing), deny (routed)
+
+20022/tcp    ALLOW IN
+15034/tcp    ALLOW IN
+```
+
+이를 통해 외부에서 들어오는 연결은 기본적으로 차단하고, 필요한 서비스 포트인 `20022/tcp`, `15034/tcp`만 허용되도록 구성하였다.
+
+증거 자료:
+- [UFW 활성화 및 포트 허용 확인](./images/ufw-status.png)
 
 ## (2) 계정/그룹/권한 체계(협업 + 최소 권한)
 - 생성 계정
     - agent-admin (운영/관리, cron 실행자)
     - agent-dev (개발/운영, monitor.sh 작성자)
     - agent-test (QA/테스트)
+    ```
+    $ adduser agent-admin
+    $ adduser agent-dev
+    $ adduser agent-test
+    ```
 - 생성 그룹
     - agent-common: admin, dev, test
     - agent-core: admin, dev
+    ```
+    $ groupadd agent-common
+    $ groupadd agent-core
+    ```
+    ```
+    $ usermod -aG agent-common,agent-core agent-admin
+    $ usermod -aG agent-common,agent-core agent-dev
+    $ usermod -aG agent-common agent-test
+    ```
+    ```
+    # 생성확인
+    $ id agent-admin
+    $ id agent-dev
+    $ id agent-test
+    ```
 - 디렉터리 구조
     - $AGENT_HOME
     - $AGENT_HOME/upload_files
@@ -110,9 +231,12 @@ monitor.sh      # 시스템 관제 자동화 스크립트
     - 1~2분 후 monitor.log 기록 누적 확인
 
 # 4. 증거 자료 및 확인 결과
-- SSH 포트 변경(20022) 및 Root 원격 접속 차단 설정 확인 내역
-- 방화벽(UFW 또는 firewalld) 활성화 및 20022/tcp, 15034/tcp만 허용 내역
+- SSH 포트 변경(20022) 및 Root 원격 접속 차단 설정 확인 내역 <br>
+[<사진> SSH 설정 및 Root 원격 접속 차단 설정 확인](images/port-permit.png)
+- 방화벽(UFW 또는 firewalld) 활성화 및 20022/tcp, 15034/tcp만 허용 내역 <br>
+[<사진> UFW 활성화 및 포트 허용 확인](images/ufw.png)
 - 계정/그룹(agent-admin/dev/test, agent-common/core) 생성 확인 내역
+[<사진> 계정/그룹 생성 확인](images/agent.png)
 - 디렉토리 구조 및 권한(ACL 포함) 확인 내역
 - 앱 Boot Sequence 5단계 [OK] 및 “Agent READY” 확인 내역
 - monitor.sh 실행 결과(프로세스/포트/리소스/경고) 내역
